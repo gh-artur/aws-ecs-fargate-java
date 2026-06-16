@@ -21,6 +21,12 @@
   - **Sem ALB** (tasks standalone) — não há target group; o ECS verifica apenas o estado RUNNING do container
 - O comportamento é controlado por `minimumHealthyPercent` e `maximumPercent`. O padrão do CDK com `desiredCount(2)` é 100%/200%, ou seja, sobe 2 novos tasks antes de derrubar os 2 antigos — garantindo zero downtime.
 
+## Connection Pool (HikariCP)
+
+- O Spring Boot usa o **HikariCP** como pool de conexões padrão, com tamanho máximo de **10 conexões por instância** da aplicação.
+- Com `desiredCount(2)` no ECS, são 2 tasks rodando, totalizando **20 conexões** abertas no RDS (10 × 2) — confirmado no console do RDS.
+- Importante dimensionar `max_connections` do RDS levando em conta o número de tasks × tamanho do pool, especialmente ao escalar (auto-scaling vai até 4 tasks = 40 conexões).
+
 ## AWS Security Groups
 
 - Security Groups controlam o tráfego de rede nos recursos AWS, definindo quais portas ficam abertas para receber requisições e de quais origens.
