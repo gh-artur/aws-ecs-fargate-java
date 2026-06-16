@@ -1,0 +1,49 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.2.0-SNAPSHOT'
+	id 'io.spring.dependency-management' version '1.1.3'
+	id 'com.palantir.docker' version '0.35.0'
+}
+
+//TODO - esse valor deve ser o mesmo do seu Docker Hub ID
+group = 'afsantos22'
+//TODO - aqui é o lugar onde se configura a tag da imagem Docker a ser gerada
+version = '1.0.0'
+
+java {
+	sourceCompatibility = '17'
+}
+
+repositories {
+	mavenCentral()
+	maven { url 'https://repo.spring.io/milestone' }
+	maven { url 'https://repo.spring.io/snapshot' }
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.register('unpack', Copy) {
+	dependsOn bootJar
+	from(zipTree(tasks.bootJar.outputs.files.singleFile))
+	into("build/dependency")
+}
+
+
+//Já está preparado para gerar imagem no formato linux/amd64, inclusive em computadores com processadores ARM, como os novos Macbook.
+//A variável project.name deve ser configurada no arquivo settings.gradle
+docker {
+	name "${project.group}/${project.name}"
+	buildx true
+	platform 'linux/amd64'
+	copySpec.from(tasks.unpack.outputs).into('dependency')
+	buildArgs(['DEPENDENCY' : "dependency"])
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
