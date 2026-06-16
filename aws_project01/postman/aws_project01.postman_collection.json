@@ -1,0 +1,86 @@
+{
+  "info": {
+    "name": "aws_project01 - Products",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    }
+  ],
+  "item": [
+    {
+      "name": "Find All Products",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/products"
+      }
+    },
+    {
+      "name": "Find Product by ID",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/products/1"
+      }
+    },
+    {
+      "name": "Find Product by Code",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/products/bycode?code=ABC123",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "products", "bycode"],
+          "query": [
+            {
+              "key": "code",
+              "value": "ABC123"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Save Product",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/products",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Product Name\",\n  \"model\": \"Model X\",\n  \"code\": \"ABC123\",\n  \"price\": 99.99\n}"
+        }
+      }
+    },
+    {
+      "name": "Update Product",
+      "request": {
+        "method": "PUT",
+        "url": "{{baseUrl}}/api/products/1",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Updated Name\",\n  \"model\": \"Model Y\",\n  \"code\": \"ABC123\",\n  \"price\": 149.99\n}"
+        }
+      }
+    },
+    {
+      "name": "Delete Product",
+      "request": {
+        "method": "DELETE",
+        "url": "{{baseUrl}}/api/products/1"
+      }
+    }
+  ]
+}
