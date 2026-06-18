@@ -1,0 +1,23 @@
+# Build output
+build/
+.gradle/
+target/
+cdk.out/
+bin/
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

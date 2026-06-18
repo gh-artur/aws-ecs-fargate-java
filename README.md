@@ -11,6 +11,7 @@ Projeto de estudo para praticar o deploy de aplicações Java na AWS usando ECS 
 - **Spring Boot 3.2** — framework para construção dos serviços REST
 - **Spring Data JPA + MariaDB/MySQL** — persistência do CRUD de produtos
 - **AWS SDK (SNS)** — publicação de eventos de produto em tópico SNS
+- **Spring JMS + Amazon SQS Java Messaging** — consumo de eventos da fila SQS (project02)
 - **Gradle** — build e empacotamento das aplicações
 
 ### Containers
@@ -24,6 +25,7 @@ Projeto de estudo para praticar o deploy de aplicações Java na AWS usando ECS 
 - **AWS VPC** — rede isolada com subnets para os recursos
 - **AWS RDS (MySQL)** — banco de dados gerenciado em subnet isolada
 - **AWS SNS** — tópico de mensageria para eventos de produto
+- **AWS SQS** — fila (com dead-letter queue) que consome o tópico SNS e alimenta o project02
 
 ### Observabilidade e operação
 - **AWS CloudWatch** — coleta e visualização de logs dos containers
@@ -32,7 +34,7 @@ Projeto de estudo para praticar o deploy de aplicações Java na AWS usando ECS 
 ## Estrutura do projeto
 
 ```
-aws_project01/   # Serviço Spring Boot (Gradle)
-aws_project02/   # Serviço Spring Boot (Gradle) — em desenvolvimento
+aws_project01/   # Serviço Spring Boot REST — CRUD de produtos, publica eventos no SNS (Gradle)
+aws_project02/   # Serviço Spring Boot — consome eventos da fila SQS via JMS listener (Gradle)
 aws_cdk/         # Infraestrutura AWS CDK (Maven)
 ```

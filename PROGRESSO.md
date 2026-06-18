@@ -56,3 +56,27 @@ Lado da infraestrutura (`aws_cdk`):
 - `AwsCdkApp` passa o tópico para o Service01 e declara a dependência entre as stacks
 
 - **Marco:** evento publicado no SNS a cada POST de produto — validado na AWS com recebimento do e-mail de notificação
+
+## Fase 7 — Consumo de eventos via SQS (project02)
+
+Lado da aplicação (`aws_project02`, porta 9090):
+- `ProductEventConsumer` com `@JmsListener` na fila `product-events` (Amazon SQS Java Messaging Library sobre JMS)
+- Desempacota o envelope do SNS: `SnsMessage` → `Envelope` → `ProductEvent`, e loga o evento
+- Modelos `SnsMessage`, `Envelope`, `ProductEvent` e enum `EventType` alinhado ao `project01`
+- Dois perfis de configuração do listener:
+  - `JmsConfig` (perfil default / AWS real) — registra o bean `jmsListenerContainerFactory`
+  - `JmsConfigLocal` (perfil `local`) — mesmo factory apontando para o LocalStack (`http://localhost:4566`)
+
+Lado da infraestrutura (`aws_cdk`):
+- `Service02Stack` cria a fila `product-events` + DLQ `product-events-dlq` (`maxReceiveCount` 3), assina a fila no tópico SNS (`SqsSubscription`), roda o `aws_project02` no Fargate e dá `grantConsumeMessages` à task role
+- `AwsCdkApp` registra a `Service02Stack` (depende de Cluster e Sns)
+- `deregistration_delay` reduzido para 30 s no Service01 e Service02 (deploy/rollback mais rápidos)
+
+Apoio para testes locais:
+- `SqsCreateSubscribe` (perfil `local` do `project01`) cria a fila e a assina no tópico no LocalStack
+
+Percalços resolvidos no caminho:
+- Faltava `@Bean` na factory JMS e o override de endpoint para LocalStack no `project02`
+- Divergência de enum entre produtor e consumidor (`PRODUCT_UPDATE` vs `PRODUCT_UPDATED`) — alinhado nos dois lados
+
+- **Marco:** fluxo ponta a ponta na AWS — insert/update/delete no `project01` geram eventos consumidos pelo `project02` (confirmado nos logs do CloudWatch)

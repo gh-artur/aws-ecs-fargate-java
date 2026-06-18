@@ -8,8 +8,8 @@ Three independent subprojects, each with its own build tool and purpose:
 
 | Directory | Build | Purpose |
 |---|---|---|
-| `aws_project01/` | Gradle | Spring Boot service — deployed to ECS Fargate |
-| `aws_project02/` | Gradle | Spring Boot service — currently a skeleton, no controllers yet |
+| `aws_project01/` | Gradle | Spring Boot REST service (product CRUD) — publishes events to SNS; deployed to ECS Fargate |
+| `aws_project02/` | Gradle | Spring Boot service — consumes product events from an SQS queue (JMS listener); deployed to ECS Fargate |
 | `aws_cdk/` | Maven | AWS CDK infrastructure that provisions the AWS resources |
 
 ## Spring Boot Services (aws_project01, aws_project02)
@@ -38,7 +38,8 @@ Both use Gradle with the Palantir Docker plugin. Run commands from within each p
 - Port: **8080**; health-check endpoint: `/actuator/health`
 - Docker image naming: the `docker` block in `build.gradle` sets only `name "${project.group}/${project.name}"` (no version), so `./gradlew docker` produces **only the `latest` tag** — group is the Docker Hub username (`afsantos22`), name comes from `settings.gradle`. The version-specific tag (e.g. `1.0.3`) is **not** created automatically; you must tag it by hand before pushing (see Deployment workflow below)
 - Dockerfile expects a pre-built exploded JAR in `build/dependency/` (produced by the `unpack` Gradle task, which the `docker` task depends on automatically)
-- SNS publishing: `ProductService` publishes a `product-events` event via `ProductPublisher` on create/update/delete. Two profiles wire the SNS client — `SnsConfig` (default, real AWS, reads `aws.sns.topic.product.events.arn`) and `SnsCreate` (profile `local`, points at LocalStack `http://localhost:4566` and creates the topic on startup)
+- SNS publishing (aws_project01): `ProductService` publishes a `product-events` event via `ProductPublisher` on create/update/delete. Two profiles wire the SNS client — `SnsConfig` (default, real AWS, reads `aws.sns.topic.product.events.arn`) and `SnsCreate` (profile `local`, points at LocalStack `http://localhost:4566` and creates the topic on startup). The profile `local` also has `SqsCreateSubscribe`, which creates the SQS queue and subscribes it to the topic on LocalStack
+- SQS consuming (aws_project02): runs on port **9090**; `ProductEventConsumer` is a `@JmsListener` on the `product-events` queue (Amazon SQS Java Messaging Library over JMS). It unwraps the SNS envelope (`SnsMessage` → `Envelope` → `ProductEvent`) and logs the event. Two profiles wire the JMS listener factory — `JmsConfig` (default, real AWS) and `JmsConfigLocal` (profile `local`, LocalStack endpoint). The producer (project01) and consumer (project02) must keep their `EventType` enum values identical, since the value travels as a string in the payload
 
 ## AWS CDK Infrastructure (aws_cdk)
 
@@ -58,6 +59,7 @@ cdk deploy Cluster
 cdk deploy Rds
 cdk deploy Sns
 cdk deploy Service01
+cdk deploy Service02
 ```
 
 The `Rds` stack requires a `databasePassword` CloudFormation parameter at deploy time — see Deployment workflow.
@@ -65,9 +67,11 @@ The `Rds` stack requires a `databasePassword` CloudFormation parameter at deploy
 ### Stacks (registered in `AwsCdkApp.java`)
 
 ```
-Vpc → Cluster ─┐
-Vpc → Rds  ────┼→ Service01
-Sns ───────────┘
+Vpc → Cluster ─┬→ Service01
+Vpc → Rds  ─────┘
+Sns ───────────┬→ Service01 (publish)
+               └→ Service02 (SQS subscription + consume)
+Cluster ────────→ Service02
 ```
 
 - **VpcStack**: VPC with 2 AZs, no NAT gateways (cost optimisation); RDS uses the isolated subnets
@@ -75,14 +79,22 @@ Sns ───────────┘
 - **RdsStack**: MySQL 5.7 `DatabaseInstance` (`db.t3.micro`, single-AZ, 10 GB) in isolated subnets
   - Password supplied via the `databasePassword` `CfnParameter` (`noEcho`, min length 8) at deploy time
   - Exports `rds-endpoint` and `rds-password` outputs, which `Service01Stack` imports via `Fn.importValue`
-- **SnsStack**: SNS topic `product-events` with an email subscription (`arturfrancisco86@gmail.com`). The topic is passed into `Service01Stack`, which receives publish permission and the topic ARN
+- **SnsStack**: SNS topic `product-events` with an email subscription (`arturfrancisco86@gmail.com`). The topic is passed into both `Service01Stack` (publisher) and `Service02Stack` (which subscribes its SQS queue to it)
 - **Service01Stack**: `ApplicationLoadBalancedFargateService` running `aws_project01`
   - 512 CPU / 1024 MiB, desired count 2, port 8080, public ALB and public IPs
   - Injects `SPRING_DATASOURCE_*` env vars from the RDS stack outputs
   - Injects `AWS_REGION` and `AWS_SNS_TOPIC_PRODUCT_EVENTS_ARN` (the real topic ARN, overriding the `product-events` default in `application.properties`), and grants the task role `grantPublish` on the SNS topic
   - Auto-scaling: min 2 / max 4 tasks, target 50% CPU, 60 s cooldowns
+  - Target group `deregistration_delay` lowered to 30 s (faster deploys/rollbacks)
   - CloudWatch log group: `Service01`
   - Image pulled from Docker Hub: `afsantos22/siecola_aws_project01:1.0.3`
+- **Service02Stack**: `ApplicationLoadBalancedFargateService` running `aws_project02`
+  - Creates the SQS queue `product-events` plus a dead-letter queue `product-events-dlq` (`maxReceiveCount` 3), and subscribes the queue to the SNS topic (`SqsSubscription`)
+  - 512 CPU / 1024 MiB, desired count 2, port 9090, public ALB and public IPs
+  - Injects `AWS_REGION` and `AWS_SQS_QUEUE_PRODUCT_EVENTS_NAME`, and grants the task role `grantConsumeMessages` on the queue
+  - Auto-scaling and `deregistration_delay` (30 s) configured like Service01
+  - CloudWatch log group: `Service02`
+  - Image pulled from Docker Hub: `afsantos22/siecola_aws_project02:1.0.1`
 
 ### Deployment workflow
 
@@ -102,3 +114,5 @@ Sns ───────────┘
    # just the service (no RDS parameter needed)
    cdk deploy Service01
    ```
+
+`aws_project02` follows the same image workflow under the name `afsantos22/siecola_aws_project02`, with the tag referenced in `Service02Stack.java`.

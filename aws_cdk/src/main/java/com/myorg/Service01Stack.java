@@ -66,6 +66,8 @@ public class Service01Stack extends Stack {
                         .healthyHttpCodes("200")
                 .build());
 
+        service01.getTargetGroup().setAttribute("deregistration_delay.timeout_seconds", "30");
+
         // Config de escalabilidade, quantas instacias da aplicação rodam
         ScalableTaskCount scalableTaskCount = service01.getService().autoScaleTaskCount(EnableScalingProps.builder()
                         .minCapacity(2)

@@ -13,6 +13,19 @@
 - Casos de uso comuns no dia a dia: desenvolvimento local, testes automatizados em CI (sem credenciais AWS reais) e onboarding/prototipagem.
 - **Ressalva:** o emulador não é 100% idêntico ao serviço real — diferenças de comportamento, permissões (IAM), latência e limites podem aparecer só na AWS de verdade. Fluxo saudável: testar rápido localmente → validar no ambiente real antes de produção.
 
+### Comandos
+
+```bash
+# Subir o LocalStack (porta 4566 — endpoint http://localhost:4566)
+docker run --rm -d -p 4566:4566 --name localstack localstack/localstack
+
+# Parar
+docker stop localstack
+```
+
+- Para interagir com os serviços use `awslocal <comando>` (wrapper do LocalStack) ou `aws --endpoint-url=http://localhost:4566 <comando>`.
+- No LocalStack o account id é sempre `000000000000` (usado na montagem dos ARNs, ex: `arn:aws:sqs:us-east-1:000000000000:product-events`).
+
 ## ECS Task Definition
 
 - A cada deploy o CDK registra uma nova revisão da task definition, mesmo que não haja alterações no conteúdo.
@@ -39,3 +52,15 @@
 - Security Groups controlam o tráfego de rede nos recursos AWS, definindo quais portas ficam abertas para receber requisições e de quais origens.
 - No ECS Fargate com ALB, existem dois security groups distintos: um para o ALB (aceita tráfego externo) e um para os tasks Fargate (aceita tráfego vindo do ALB).
 - O CDK cria e associa esses security groups automaticamente ao usar `ApplicationLoadBalancedFargateService`.
+
+## SNS → SQS (fan-out)
+
+- Padrão de mensageria assíncrona para **desacoplar** produtor e consumidor: o `project01` publica eventos no tópico SNS sem saber quem consome, e cada consumidor (ex: `project02`) lê de sua própria fila SQS.
+  ```
+  ProductService (project01) → SNS (product-events) → SQS (fila) → project02 (service02)
+  ```
+- **Fan-out:** um mesmo tópico SNS pode ter várias filas SQS assinadas, e cada uma recebe uma cópia da mensagem — permite adicionar novos consumidores sem mexer no produtor.
+- **Assinatura no CDK:** a fila é assinada no tópico com `SqsSubscription`. O CDK gera automaticamente a policy que autoriza o SNS a enviar mensagens para a fila. (Atenção: a `SnsStack` expõe um `SnsTopic` (wrapper de event target); para assinar é preciso o `Topic` por baixo via `.getTopic().addSubscription(...)`.)
+- **Raw message delivery:** sem ele, a fila recebe o envelope completo do SNS (JSON com metadados, e o payload dentro do campo `Message`). Com raw delivery ativado, a fila recebe só o conteúdo publicado — facilita a desserialização no consumidor.
+- **Consumo:** o consumidor faz *polling* na fila (AWS SDK SQS ou Spring Cloud AWS), processa a mensagem e a deleta. Mensagem não deletada volta a ficar visível após o *visibility timeout* (garante reprocessamento em caso de falha).
+- **Configuração via env vars:** o `project02` recebe URL/nome da fila e região por variáveis de ambiente, injetadas pela `Service02Stack` no CDK — mesmo esquema usado para injetar o ARN do SNS no `Service01`.
