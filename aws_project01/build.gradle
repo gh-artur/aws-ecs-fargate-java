@@ -6,7 +6,7 @@ plugins {
 }
 
 group = 'afsantos22'
-version = '1.0.2'
+version = '1.0.3'
 
 java {
 	sourceCompatibility = '17'
@@ -21,10 +21,12 @@ repositories {
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
 
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	runtimeOnly 'org.mariadb.jdbc:mariadb-java-client'
+
+	implementation 'com.amazonaws:aws-java-sdk-sns:1.12.470'
 
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'

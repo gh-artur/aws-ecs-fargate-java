@@ -6,6 +6,13 @@
 - Para corrigir: remover o `.git` interno, depois `git rm --cached <pasta>` para tirar do índice sem deletar os arquivos do disco, e por fim `git add <pasta>/` para rastrear o conteúdo normalmente.
 - `--cached` no `git rm` remove apenas do índice; sem ele, os arquivos são deletados do disco também.
 
+## LocalStack
+
+- Ferramenta que **emula serviços da AWS localmente** (SNS, SQS, S3, DynamoDB, Lambda, etc.) rodando num container Docker — permite desenvolver e testar sem tocar na nuvem real (sem custo, sem internet, sem poluir ambiente compartilhado).
+- Para usar com o cliente AWS, sobrescreve-se o **endpoint** do client para apontar para o LocalStack (`http://localhost:4566`) em vez do endpoint real da AWS.
+- Casos de uso comuns no dia a dia: desenvolvimento local, testes automatizados em CI (sem credenciais AWS reais) e onboarding/prototipagem.
+- **Ressalva:** o emulador não é 100% idêntico ao serviço real — diferenças de comportamento, permissões (IAM), latência e limites podem aparecer só na AWS de verdade. Fluxo saudável: testar rápido localmente → validar no ambiente real antes de produção.
+
 ## ECS Task Definition
 
 - A cada deploy o CDK registra uma nova revisão da task definition, mesmo que não haja alterações no conteúdo.

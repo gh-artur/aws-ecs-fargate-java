@@ -39,6 +39,20 @@ Diário das fases concluídas no curso, com os marcos alcançados em cada etapa.
 - Verificação no console do RDS: 20 conexões abertas (10 por task × 2 tasks — pool padrão do HikariCP)
 - **Marco:** aplicação completa rodando na AWS, requisições funcionando de ponta a ponta
 
-## Próxima fase
+## Fase 6 — Eventos de produto via SNS
 
-- [ ] Adicionar SNS (notificações)
+Lado da aplicação (`aws_project01`):
+- Enum `EventType` (`PRODUCT_CREATED`, `PRODUCT_UPDATE`, `PRODUCT_DELETE`)
+- Modelos `ProductEvent` e `Envelope` (payload serializado em JSON com Jackson)
+- `ProductPublisher` publica no tópico `product-events` via AWS SDK SNS
+- `ProductService` dispara o evento no create/update/delete
+- Dois perfis de configuração do client SNS:
+  - `SnsConfig` (perfil default / AWS real) — lê o ARN de `aws.sns.topic.product.events.arn`
+  - `SnsCreate` (perfil `local`) — aponta para o LocalStack (`http://localhost:4566`) e cria o tópico no startup
+
+Lado da infraestrutura (`aws_cdk`):
+- `SnsStack` cria o tópico `product-events` + assinatura de e-mail
+- `Service01Stack` recebe o tópico, injeta `AWS_SNS_TOPIC_PRODUCT_EVENTS_ARN` (ARN real, sobrescrevendo o default do `application.properties`) e ganha `grantPublish` na task role
+- `AwsCdkApp` passa o tópico para o Service01 e declara a dependência entre as stacks
+
+- **Marco:** evento publicado no SNS a cada POST de produto — validado na AWS com recebimento do e-mail de notificação
