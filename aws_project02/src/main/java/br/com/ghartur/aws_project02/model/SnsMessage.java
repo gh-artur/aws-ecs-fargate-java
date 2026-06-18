@@ -23,6 +23,6 @@ public class SnsMessage {
     private String timestamp;
 
     @JsonProperty("MessageId")
-    private String messsageId;
+    private String messageId;
 
 }

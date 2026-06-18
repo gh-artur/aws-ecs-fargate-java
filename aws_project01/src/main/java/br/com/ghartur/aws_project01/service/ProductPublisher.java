@@ -5,6 +5,7 @@ import br.com.ghartur.aws_project01.model.Envelope;
 import br.com.ghartur.aws_project01.model.Product;
 import br.com.ghartur.aws_project01.model.ProductEvent;
 import com.amazonaws.services.sns.AmazonSNS;
+import com.amazonaws.services.sns.model.PublishResult;
 import com.amazonaws.services.sns.model.Topic;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -42,7 +43,13 @@ public class ProductPublisher {
         try {
             productEnvelope.setData(objectMapper.writeValueAsString(productEvent));
 
-            snsClient.publish(productEventsTopic.getTopicArn(), objectMapper.writeValueAsString(productEnvelope));
+            PublishResult publishResult = snsClient.publish(productEventsTopic.getTopicArn(), objectMapper.writeValueAsString(productEnvelope));
+
+            LOG.info("Product event sent - event {} - productId {} - messageid {}",
+                    productEnvelope.getEventType(),
+                    productEvent.getProductId(),
+                    publishResult.getMessageId());
+
         } catch (JsonProcessingException e) {
             LOG.error("Erro ao criar mensagem de evento: "+e.getMessage());
         }
