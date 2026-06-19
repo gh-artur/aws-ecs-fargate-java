@@ -99,7 +99,7 @@ Ddb ────────────→ Service02 (read/write event log)
   - Injects `AWS_REGION` and `AWS_SQS_QUEUE_PRODUCT_EVENTS_NAME`, grants the task role `grantConsumeMessages` on the queue, and grants `grantReadWriteData` on the DynamoDB `product-events` table (passed in from `DdbStack`)
   - Auto-scaling and `deregistration_delay` (30 s) configured like Service01
   - CloudWatch log group: `Service02`
-  - Image pulled from Docker Hub: `afsantos22/siecola_aws_project02:1.0.3`
+  - Image pulled from Docker Hub: `afsantos22/siecola_aws_project02:1.0.4`
 
 ### Deployment workflow
 

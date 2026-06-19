@@ -1,0 +1,50 @@
+{
+  "info": {
+    "name": "aws_project02 - Product Events",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:9090"
+    }
+  ],
+  "item": [
+    {
+      "name": "Find All Events",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/events"
+      }
+    },
+    {
+      "name": "Find Events by Code",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/events/ABC123",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "events", "ABC123"]
+        }
+      }
+    },
+    {
+      "name": "Find Events by Code and Event Type",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/events/ABC123/PRODUCT_CREATED",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "events", "ABC123", "PRODUCT_CREATED"]
+        }
+      }
+    },
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/actuator/health"
+      }
+    }
+  ]
+}

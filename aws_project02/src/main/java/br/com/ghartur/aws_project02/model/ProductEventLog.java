@@ -3,6 +3,7 @@ package br.com.ghartur.aws_project02.model;
 import br.com.ghartur.aws_project02.enums.EventType;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBAttribute;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBHashKey;
+import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBRangeKey;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTypeConvertedEnum;
 import org.springframework.data.annotation.Id;
@@ -45,7 +46,7 @@ public class ProductEventLog {
         this.productEventKey.setPk(pk);
     }
 
-    @DynamoDBHashKey(attributeName = "sk")
+    @DynamoDBRangeKey(attributeName = "sk")
     public String getSk(){
         return this.productEventKey.getSk() != null ?  this.productEventKey.getSk() : null;
     }
