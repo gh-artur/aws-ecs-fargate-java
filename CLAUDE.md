@@ -39,7 +39,8 @@ Both use Gradle with the Palantir Docker plugin. Run commands from within each p
 - Docker image naming: the `docker` block in `build.gradle` sets only `name "${project.group}/${project.name}"` (no version), so `./gradlew docker` produces **only the `latest` tag** — group is the Docker Hub username (`afsantos22`), name comes from `settings.gradle`. The version-specific tag (e.g. `1.0.3`) is **not** created automatically; you must tag it by hand before pushing (see Deployment workflow below)
 - Dockerfile expects a pre-built exploded JAR in `build/dependency/` (produced by the `unpack` Gradle task, which the `docker` task depends on automatically)
 - SNS publishing (aws_project01): `ProductService` publishes a `product-events` event via `ProductPublisher` on create/update/delete. Two profiles wire the SNS client — `SnsConfig` (default, real AWS, reads `aws.sns.topic.product.events.arn`) and `SnsCreate` (profile `local`, points at LocalStack `http://localhost:4566` and creates the topic on startup). The profile `local` also has `SqsCreateSubscribe`, which creates the SQS queue and subscribes it to the topic on LocalStack
-- SQS consuming (aws_project02): runs on port **9090**; `ProductEventConsumer` is a `@JmsListener` on the `product-events` queue (Amazon SQS Java Messaging Library over JMS). It unwraps the SNS envelope (`SnsMessage` → `Envelope` → `ProductEvent`) and logs the event. Two profiles wire the JMS listener factory — `JmsConfig` (default, real AWS) and `JmsConfigLocal` (profile `local`, LocalStack endpoint). The producer (project01) and consumer (project02) must keep their `EventType` enum values identical, since the value travels as a string in the payload
+- SQS consuming (aws_project02): runs on port **9090**; `ProductEventConsumer` is a `@JmsListener` on the `product-events` queue (Amazon SQS Java Messaging Library over JMS). It unwraps the SNS envelope (`SnsMessage` → `Envelope` → `ProductEvent`), logs the event, and **persists a `ProductEventLog` to DynamoDB** via `ProductEventLogRepository`. Two profiles wire the JMS listener factory — `JmsConfig` (default, real AWS) and `JmsConfigLocal` (profile `local`, LocalStack endpoint). The producer (project01) and consumer (project02) must keep their `EventType` enum values identical, since the value travels as a string in the payload
+- DynamoDB persistence (aws_project02): `DynamoDBConfig` wires the DynamoDB client/mapper (`spring-data-dynamodb`) reading `aws.region`. The `ProductEventLog` entity maps to the `product-events` table with a composite key — partition key `pk` (the product `code`) and sort key `sk` (`<eventType>_<timestamp>`) — plus a 10-minute `ttl`. `ProductEventLogRepository` (`@EnableScan` `CrudRepository`) exposes `findAllByPk` / `findAllByPkAndSkStartsWith`. The table name must match the DynamoDB table created by `DdbStack`
 
 ## AWS CDK Infrastructure (aws_cdk)
 
@@ -58,6 +59,7 @@ cdk deploy Vpc
 cdk deploy Cluster
 cdk deploy Rds
 cdk deploy Sns
+cdk deploy Ddb
 cdk deploy Service01
 cdk deploy Service02
 ```
@@ -72,14 +74,17 @@ Vpc → Rds  ─────┘
 Sns ───────────┬→ Service01 (publish)
                └→ Service02 (SQS subscription + consume)
 Cluster ────────→ Service02
+Ddb ────────────→ Service02 (read/write event log)
 ```
 
 - **VpcStack**: VPC with 2 AZs, no NAT gateways (cost optimisation); RDS uses the isolated subnets
 - **ClusterStack**: ECS cluster `cluster-01` inside the VPC
-- **RdsStack**: MySQL 5.7 `DatabaseInstance` (`db.t3.micro`, single-AZ, 10 GB) in isolated subnets
+- **RdsStack**: MySQL 8.0 `DatabaseInstance` (`db.t4g.micro` Graviton, single-AZ, 10 GB gp2) in isolated subnets
   - Password supplied via the `databasePassword` `CfnParameter` (`noEcho`, min length 8) at deploy time
   - Exports `rds-endpoint` and `rds-password` outputs, which `Service01Stack` imports via `Fn.importValue`
+  - Cost-tuned for study: MySQL **8.0** (not 5.7, which incurs Extended Support charges), Graviton instance, gp2 10 GB, no automated backups (`backupRetention` 0), and `removalPolicy DESTROY` for clean teardown. Note: gp3 is not used because MySQL requires a 20 GB minimum for it
 - **SnsStack**: SNS topic `product-events` with an email subscription (`arturfrancisco86@gmail.com`). The topic is passed into both `Service01Stack` (publisher) and `Service02Stack` (which subscribes its SQS queue to it)
+- **DdbStack**: DynamoDB table `product-events` (provisioned 1 RCU / 1 WCU, partition key `pk`, sort key `sk`, `ttl` attribute, `removalPolicy DESTROY`). The table is passed into `Service02Stack`, which grants `grantReadWriteData` to the task role
 - **Service01Stack**: `ApplicationLoadBalancedFargateService` running `aws_project01`
   - 512 CPU / 1024 MiB, desired count 2, port 8080, public ALB and public IPs
   - Injects `SPRING_DATASOURCE_*` env vars from the RDS stack outputs
@@ -91,10 +96,10 @@ Cluster ────────→ Service02
 - **Service02Stack**: `ApplicationLoadBalancedFargateService` running `aws_project02`
   - Creates the SQS queue `product-events` plus a dead-letter queue `product-events-dlq` (`maxReceiveCount` 3), and subscribes the queue to the SNS topic (`SqsSubscription`)
   - 512 CPU / 1024 MiB, desired count 2, port 9090, public ALB and public IPs
-  - Injects `AWS_REGION` and `AWS_SQS_QUEUE_PRODUCT_EVENTS_NAME`, and grants the task role `grantConsumeMessages` on the queue
+  - Injects `AWS_REGION` and `AWS_SQS_QUEUE_PRODUCT_EVENTS_NAME`, grants the task role `grantConsumeMessages` on the queue, and grants `grantReadWriteData` on the DynamoDB `product-events` table (passed in from `DdbStack`)
   - Auto-scaling and `deregistration_delay` (30 s) configured like Service01
   - CloudWatch log group: `Service02`
-  - Image pulled from Docker Hub: `afsantos22/siecola_aws_project02:1.0.1`
+  - Image pulled from Docker Hub: `afsantos22/siecola_aws_project02:1.0.3`
 
 ### Deployment workflow
 

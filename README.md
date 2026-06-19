@@ -26,6 +26,7 @@ Projeto de estudo para praticar o deploy de aplicações Java na AWS usando ECS 
 - **AWS RDS (MySQL)** — banco de dados gerenciado em subnet isolada
 - **AWS SNS** — tópico de mensageria para eventos de produto
 - **AWS SQS** — fila (com dead-letter queue) que consome o tópico SNS e alimenta o project02
+- **AWS DynamoDB** — tabela `product-events` onde o project02 persiste o log dos eventos consumidos (com TTL)
 
 ### Observabilidade e operação
 - **AWS CloudWatch** — coleta e visualização de logs dos containers
@@ -45,7 +46,7 @@ aws_cdk/         # Infraestrutura AWS CDK (Maven)
 
 Outros ajustes de custo aplicados na `RdsStack` para ambiente de estudo:
 - **Graviton (`db.t4g.micro`)** em vez de `db.t3.micro` — mesma performance, mais barato.
-- **Storage `gp3`** em vez do `gp2` padrão.
+- **Storage `gp2` com 10 GB** — o `gp3` no MySQL exige mínimo de 20 GB, o que dobraria o storage sem ganho real nesse tamanho.
 - **Sem backups automáticos** (`backupRetention` 0, `deleteAutomatedBackups`) — não há snapshots cobrados.
 - **`removalPolicy DESTROY` + `deletionProtection false`** — permite `cdk destroy` limpo ao encerrar o estudo.
 

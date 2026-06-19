@@ -2,6 +2,7 @@ package com.myorg;
 
 import software.amazon.awscdk.*;
 import software.amazon.awscdk.services.applicationautoscaling.EnableScalingProps;
+import software.amazon.awscdk.services.dynamodb.Table;
 import software.amazon.awscdk.services.ecs.*;
 import software.amazon.awscdk.services.ecs.patterns.ApplicationLoadBalancedFargateService;
 import software.amazon.awscdk.services.ecs.patterns.ApplicationLoadBalancedTaskImageOptions;
@@ -18,11 +19,11 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class Service02Stack extends Stack {
-    public Service02Stack(final Construct scope, final String id, Cluster cluster, SnsTopic productEventsTopic) {
-        this(scope, id, null, cluster, productEventsTopic);
+    public Service02Stack(final Construct scope, final String id, Cluster cluster, SnsTopic productEventsTopic, Table productEventsTable) {
+        this(scope, id, null, cluster, productEventsTopic, productEventsTable);
     }
 
-    public Service02Stack(final Construct scope, final String id, final StackProps props, Cluster cluster, SnsTopic productEventsTopic) {
+    public Service02Stack(final Construct scope, final String id, final StackProps props, Cluster cluster, SnsTopic productEventsTopic, Table productEventsTable) {
         super(scope, id, props);
 
         Queue productEventsDlq = Queue.Builder.create(this, "ProductEventsDlq")
@@ -65,7 +66,7 @@ public class Service02Stack extends Stack {
                 .taskImageOptions(
                         ApplicationLoadBalancedTaskImageOptions.builder()
                                 .containerName("aws_project02")
-                                .image(ContainerImage.fromRegistry("afsantos22/siecola_aws_project02:1.0.2"))
+                                .image(ContainerImage.fromRegistry("afsantos22/siecola_aws_project02:1.0.3"))
                                 .containerPort(9090)
                                 .logDriver(LogDriver.awsLogs(AwsLogDriverProps.builder()
                                         .logGroup(LogGroup.Builder.create(this, "Service02LogGroup")
@@ -102,6 +103,10 @@ public class Service02Stack extends Stack {
                 .build());
 
         productEventsQueue.grantConsumeMessages(service02.getTaskDefinition().getTaskRole());
+
+        productEventsTable.grantReadWriteData(service02.getTaskDefinition().getTaskRole());
+
+
 
     }
 }

@@ -47,9 +47,10 @@ public class RdsStack extends Stack {
                 // Graviton (t4g.micro): mesma performance, mais barato que o t3.micro
                 .instanceType(InstanceType.of(InstanceClass.BURSTABLE4_GRAVITON, InstanceSize.MICRO))
                 .multiAz(false)
+                // gp2 com 10 GB: gp3 no MySQL exige minimo de 20 GB, o que dobraria
+                // o storage sem ganho real nesse tamanho
                 .allocatedStorage(10)
-                // gp3 e mais barato/flexivel que o gp2 padrao
-                .storageType(StorageType.GP3)
+                .storageType(StorageType.GP2)
                 // ambiente de estudo: sem backups automaticos cobrados e teardown limpo
                 .backupRetention(Duration.days(0))
                 .deleteAutomatedBackups(true)
