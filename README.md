@@ -38,3 +38,15 @@ aws_project01/   # Serviço Spring Boot REST — CRUD de produtos, publica event
 aws_project02/   # Serviço Spring Boot — consome eventos da fila SQS via JMS listener (Gradle)
 aws_cdk/         # Infraestrutura AWS CDK (Maven)
 ```
+
+## Notas de custo (RDS)
+
+> **MySQL 8.0 em vez de 5.7 (divergência do curso):** o curso orienta a usar o **MySQL 5.7**, porém essa versão já saiu do suporte padrão da AWS e a RDS **cobra automaticamente o Extended Support por vCPU-hora**. Em testes de estudo isso foi de longe o maior custo da stack (~$0.10/vCPU-hora). Por isso a `RdsStack` usa **`MysqlEngineVersion.VER_8_0`**, que continua em suporte padrão e elimina essa cobrança. A aplicação Spring/JPA funciona igual no 8.0.
+
+Outros ajustes de custo aplicados na `RdsStack` para ambiente de estudo:
+- **Graviton (`db.t4g.micro`)** em vez de `db.t3.micro` — mesma performance, mais barato.
+- **Storage `gp3`** em vez do `gp2` padrão.
+- **Sem backups automáticos** (`backupRetention` 0, `deleteAutomatedBackups`) — não há snapshots cobrados.
+- **`removalPolicy DESTROY` + `deletionProtection false`** — permite `cdk destroy` limpo ao encerrar o estudo.
+
+💡 Para estudo, o maior economizador é **`cdk destroy --all` ao terminar o dia**: RDS, Fargate e ALB cobram por hora ligados, não por uso.

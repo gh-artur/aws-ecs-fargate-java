@@ -34,17 +34,27 @@ public class RdsStack extends Stack {
         DatabaseInstance databaseInstance = DatabaseInstance.Builder
                 .create(this, "Rds01")
                 .instanceIdentifier("aws-project01-db")
+                // MySQL 8.0 em vez de 5.7: o 5.7 saiu do suporte padrao e a AWS
+                // cobra Extended Support por vCPU-hora automaticamente (principal custo p/ estudo)
                 .engine(DatabaseInstanceEngine.mysql(MySqlInstanceEngineProps.builder()
-                        .version(MysqlEngineVersion.VER_5_7)
+                        .version(MysqlEngineVersion.VER_8_0)
                         .build()))
                 .vpc(vpc)
                 .credentials(Credentials.fromUsername("admin",
                         CredentialsFromUsernameOptions.builder()
                                 .password(SecretValue.cfnParameter(databasePassword))
                                 .build()))
-                .instanceType(InstanceType.of(InstanceClass.BURSTABLE3, InstanceSize.MICRO))
+                // Graviton (t4g.micro): mesma performance, mais barato que o t3.micro
+                .instanceType(InstanceType.of(InstanceClass.BURSTABLE4_GRAVITON, InstanceSize.MICRO))
                 .multiAz(false)
                 .allocatedStorage(10)
+                // gp3 e mais barato/flexivel que o gp2 padrao
+                .storageType(StorageType.GP3)
+                // ambiente de estudo: sem backups automaticos cobrados e teardown limpo
+                .backupRetention(Duration.days(0))
+                .deleteAutomatedBackups(true)
+                .deletionProtection(false)
+                .removalPolicy(RemovalPolicy.DESTROY)
                 .securityGroups(Collections.singletonList(iSecurityGroup))
                 .vpcSubnets(SubnetSelection.builder()
                         .subnets(vpc.getIsolatedSubnets())
