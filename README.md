@@ -13,44 +13,38 @@ A ideia central que o projeto exercita é o padrão **event-driven com fan-out**
 
 ## Arquitetura
 
-```mermaid
-flowchart TB
-    client(["Cliente HTTP"])
-    client -->|"ALB :8080"| svc01
-
-    subgraph svc01 ["aws_project01 (ECS Fargate)"]
-        products["API CRUD de produtos"]
-        invoiceApi["API de invoices"]
-        invoiceConsumer["InvoiceConsumer (JMS)"]
-    end
-
-    rds[("RDS MySQL<br/>produtos / invoices")]
-
-    %% Fluxo de produtos
-    products -->|publica evento| snsProd["SNS product-events"]
-    snsProd -->|fan-out| sqsProd["SQS product-events<br/>(+ DLQ)"]
-    sqsProd -->|consome via JMS| svc02["aws_project02 (ECS Fargate)"]
-    svc02 --> ddb[("DynamoDB product-events<br/>log com TTL")]
-
-    %% Fluxo de invoices
-    invoiceApi -->|1. gera URL pré-assinada| s3[("S3 bucket de invoices")]
-    client -.->|2. PUT do arquivo| s3
-    s3 -->|OBJECT_CREATED_PUT| snsInv["SNS s3-invoice-events"]
-    snsInv --> sqsInv["SQS s3-invoice-events<br/>(+ DLQ)"]
-    sqsInv -->|consome| invoiceConsumer
-    invoiceConsumer -->|baixa e remove objeto| s3
-    invoiceConsumer -->|persiste invoice| rds
-    products -->|persiste produto| rds
-```
+O sistema tem **dois fluxos independentes**, cada um descrito abaixo com seu próprio diagrama. Em ambos, o número em cada seta indica a ordem dos passos.
 
 ### Fluxo de produtos (assíncrono entre dois serviços)
 
+```mermaid
+flowchart LR
+    client(["Cliente"]) -->|"1 · REST /api/products"| api["aws_project01<br/>API de produtos"]
+    api -->|"2 · grava produto"| rds[("RDS MySQL")]
+    api -->|"3 · publica evento"| sns["SNS<br/>product-events"]
+    sns -->|"4 · fan-out"| sqs["SQS product-events<br/>(+ DLQ)"]
+    sqs -->|"5 · consome (JMS)"| svc02["aws_project02"]
+    svc02 -->|"6 · grava log"| ddb[("DynamoDB<br/>(TTL 10 min)")]
+```
+
 1. O cliente chama a API REST de `aws_project01` (`/api/products`).
-2. A cada create/update/delete, o serviço publica um `ProductEvent` no tópico SNS `product-events`.
+2. A cada create/update/delete, o serviço persiste no banco e publica um `ProductEvent` no tópico SNS `product-events`.
 3. O tópico faz **fan-out** para a fila SQS `product-events` (com dead-letter queue após 3 tentativas).
 4. `aws_project02` escuta a fila via **JMS listener**, desempacota o envelope SNS e grava um `ProductEventLog` no **DynamoDB** (chave composta `pk`/`sk`, com TTL de 10 minutos). O serviço também expõe endpoints de consulta desse histórico.
 
 ### Fluxo de notas fiscais (upload via S3 + processamento assíncrono)
+
+```mermaid
+flowchart LR
+    client(["Cliente"]) -->|"1 · POST /api/invoices"| api["aws_project01<br/>API de invoices"]
+    api -->|"2 · devolve URL pré-assinada"| client
+    client -->|"3 · PUT do arquivo"| s3[("S3<br/>bucket de invoices")]
+    s3 -->|"4 · OBJECT_CREATED_PUT"| sns["SNS<br/>s3-invoice-events"]
+    sns -->|"5 · fan-out"| sqs["SQS s3-invoice-events<br/>(+ DLQ)"]
+    sqs -->|"6 · consome"| consumer["aws_project01<br/>InvoiceConsumer"]
+    consumer -->|"7 · baixa e apaga objeto"| s3
+    consumer -->|"8 · grava invoice"| rds[("RDS MySQL")]
+```
 
 1. O cliente pede uma **URL pré-assinada** em `POST /api/invoices`; o serviço devolve uma URL temporária de `PUT` para o bucket S3.
 2. O cliente faz o upload do arquivo JSON da nota diretamente para o S3 usando essa URL (sem passar o payload pela aplicação).
