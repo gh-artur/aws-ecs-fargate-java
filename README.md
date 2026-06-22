@@ -13,35 +13,34 @@ A ideia central que o projeto exercita é o padrão **event-driven com fan-out**
 
 ## Arquitetura
 
-```
-                          ┌─────────────────────────────┐
-   Cliente HTTP  ───────► │  aws_project01 (ECS Fargate) │
-   (ALB :8080)            │  - CRUD de produtos          │
-                          │  - API de invoices           │
-                          └───────────┬─────────────────-┘
-                                      │
-        Fluxo de PRODUTOS             │            Fluxo de INVOICES
-   ┌──────────────────────────┐      │      ┌────────────────────────────────┐
-   │ publica evento de produto │     │      │ 1. gera URL pré-assinada (S3)   │
-   │            │              │     │      │ 2. cliente faz PUT do arquivo   │
-   │            ▼              │     │      │            │                    │
-   │     SNS product-events    │     │      │            ▼                    │
-   │            │              │     │      │   S3 (OBJECT_CREATED_PUT)       │
-   │            ▼              │     │      │            │                    │
-   │     SQS product-events    │     │      │            ▼                    │
-   │       (+ DLQ)             │     │      │   SNS s3-invoice-events         │
-   │            │              │     │      │            │                    │
-   │            ▼              │     │      │            ▼                    │
-   │ aws_project02 (Fargate)   │     │      │   SQS s3-invoice-events (+ DLQ) │
-   │   consome via JMS         │     │      │            │                    │
-   │            │              │     │      │            ▼                    │
-   │            ▼              │     │      │   aws_project01 consome,        │
-   │  DynamoDB product-events  │     │      │   baixa do S3, salva no RDS     │
-   │   (log com TTL)           │     │      │   e remove o objeto do bucket   │
-   └──────────────────────────┘     │      └────────────────────────────────┘
-                                     │
-                                     ▼
-                              RDS MySQL (produtos / invoices)
+```mermaid
+flowchart TB
+    client(["Cliente HTTP"])
+    client -->|"ALB :8080"| svc01
+
+    subgraph svc01 ["aws_project01 (ECS Fargate)"]
+        products["API CRUD de produtos"]
+        invoiceApi["API de invoices"]
+        invoiceConsumer["InvoiceConsumer (JMS)"]
+    end
+
+    rds[("RDS MySQL<br/>produtos / invoices")]
+
+    %% Fluxo de produtos
+    products -->|publica evento| snsProd["SNS product-events"]
+    snsProd -->|fan-out| sqsProd["SQS product-events<br/>(+ DLQ)"]
+    sqsProd -->|consome via JMS| svc02["aws_project02 (ECS Fargate)"]
+    svc02 --> ddb[("DynamoDB product-events<br/>log com TTL")]
+
+    %% Fluxo de invoices
+    invoiceApi -->|1. gera URL pré-assinada| s3[("S3 bucket de invoices")]
+    client -.->|2. PUT do arquivo| s3
+    s3 -->|OBJECT_CREATED_PUT| snsInv["SNS s3-invoice-events"]
+    snsInv --> sqsInv["SQS s3-invoice-events<br/>(+ DLQ)"]
+    sqsInv -->|consome| invoiceConsumer
+    invoiceConsumer -->|baixa e remove objeto| s3
+    invoiceConsumer -->|persiste invoice| rds
+    products -->|persiste produto| rds
 ```
 
 ### Fluxo de produtos (assíncrono entre dois serviços)
