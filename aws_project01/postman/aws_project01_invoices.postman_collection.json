@@ -1,0 +1,79 @@
+{
+  "info": {
+    "name": "aws_project01 - Invoices",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "presignedUrl",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Create Invoice Upload URL",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = pm.response.json();",
+              "pm.collectionVariables.set(\"presignedUrl\", json.url);",
+              "console.log(\"Presigned URL saved:\", json.url);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/invoices"
+      }
+    },
+    {
+      "name": "Upload Invoice File (presigned URL)",
+      "request": {
+        "method": "PUT",
+        "url": "{{presignedUrl}}",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"invoiceNumber\": \"INV-001\",\n  \"customerName\": \"John Doe\",\n  \"totalValue\": 199.90,\n  \"productId\": 1,\n  \"quantity\": 2\n}"
+        }
+      }
+    },
+    {
+      "name": "Find All Invoices",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/invoices"
+      }
+    },
+    {
+      "name": "Find Invoices by Customer Name",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/invoices/bycustomername?customerName=John Doe",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "invoices", "bycustomername"],
+          "query": [
+            {
+              "key": "customerName",
+              "value": "John Doe"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
