@@ -1,44 +1,90 @@
 # aws-ecs-fargate-java
 
-Projeto de estudo para praticar o deploy de aplicações Java na AWS usando ECS Fargate.
+Projeto de estudo que implementa uma pequena plataforma orientada a eventos na AWS, com aplicações Java (Spring Boot) executadas em **ECS Fargate** e toda a infraestrutura provisionada via **AWS CDK**. O objetivo é praticar, de ponta a ponta, o ciclo de **desenvolver → conteinerizar → provisionar → operar** serviços na nuvem.
 
-## Ferramentas praticadas
+## O que o projeto faz
 
-### Linguagem e runtime
-- **Java 17** — linguagem principal das aplicações e da infraestrutura CDK
+São dois microsserviços que se comunicam de forma **assíncrona** por mensageria, cobrindo dois domínios:
 
-### Aplicação
-- **Spring Boot 3.2** — framework para construção dos serviços REST
-- **Spring Data JPA + MariaDB/MySQL** — persistência do CRUD de produtos
-- **AWS SDK (SNS)** — publicação de eventos de produto em tópico SNS
-- **Spring JMS + Amazon SQS Java Messaging** — consumo de eventos da fila SQS (project02)
-- **Gradle** — build e empacotamento das aplicações
+1. **Produtos** — `aws_project01` expõe uma API REST de CRUD de produtos. Cada alteração (criar/atualizar/excluir) publica um evento no SNS. `aws_project02` consome esses eventos de uma fila SQS e registra um histórico no DynamoDB.
+2. **Notas fiscais (invoices)** — `aws_project01` também recebe o upload de notas fiscais via **URL pré-assinada do S3**. Quando o arquivo chega ao bucket, o S3 dispara uma notificação que, passando por SNS e SQS, é processada de forma assíncrona pelo próprio serviço, que persiste a nota no banco relacional.
 
-### Containers
-- **Docker** — containerização das aplicações com imagens para `linux/amd64`
-- **Docker Hub** — registry para armazenamento e distribuição das imagens
+A ideia central que o projeto exercita é o padrão **event-driven com fan-out** (SNS → SQS), desacoplando quem produz o evento de quem o processa, com fila de retentativa (DLQ) para mensagens com falha.
 
-### Infraestrutura AWS
-- **AWS CDK (Java)** — infraestrutura como código para provisionar todos os recursos AWS
-- **AWS ECS Fargate** — execução dos containers sem gerenciar servidores
-- **AWS ALB (Application Load Balancer)** — balanceamento de carga e exposição pública dos serviços
-- **AWS VPC** — rede isolada com subnets para os recursos
-- **AWS RDS (MySQL)** — banco de dados gerenciado em subnet isolada
-- **AWS SNS** — tópico de mensageria para eventos de produto
-- **AWS SQS** — fila (com dead-letter queue) que consome o tópico SNS e alimenta o project02
-- **AWS DynamoDB** — tabela `product-events` onde o project02 persiste o log dos eventos consumidos (com TTL)
+## Arquitetura
 
-### Observabilidade e operação
-- **AWS CloudWatch** — coleta e visualização de logs dos containers
-- **AWS Console** — monitoramento e diagnóstico dos recursos provisionados
+```
+                          ┌─────────────────────────────┐
+   Cliente HTTP  ───────► │  aws_project01 (ECS Fargate) │
+   (ALB :8080)            │  - CRUD de produtos          │
+                          │  - API de invoices           │
+                          └───────────┬─────────────────-┘
+                                      │
+        Fluxo de PRODUTOS             │            Fluxo de INVOICES
+   ┌──────────────────────────┐      │      ┌────────────────────────────────┐
+   │ publica evento de produto │     │      │ 1. gera URL pré-assinada (S3)   │
+   │            │              │     │      │ 2. cliente faz PUT do arquivo   │
+   │            ▼              │     │      │            │                    │
+   │     SNS product-events    │     │      │            ▼                    │
+   │            │              │     │      │   S3 (OBJECT_CREATED_PUT)       │
+   │            ▼              │     │      │            │                    │
+   │     SQS product-events    │     │      │            ▼                    │
+   │       (+ DLQ)             │     │      │   SNS s3-invoice-events         │
+   │            │              │     │      │            │                    │
+   │            ▼              │     │      │            ▼                    │
+   │ aws_project02 (Fargate)   │     │      │   SQS s3-invoice-events (+ DLQ) │
+   │   consome via JMS         │     │      │            │                    │
+   │            │              │     │      │            ▼                    │
+   │            ▼              │     │      │   aws_project01 consome,        │
+   │  DynamoDB product-events  │     │      │   baixa do S3, salva no RDS     │
+   │   (log com TTL)           │     │      │   e remove o objeto do bucket   │
+   └──────────────────────────┘     │      └────────────────────────────────┘
+                                     │
+                                     ▼
+                              RDS MySQL (produtos / invoices)
+```
+
+### Fluxo de produtos (assíncrono entre dois serviços)
+
+1. O cliente chama a API REST de `aws_project01` (`/api/products`).
+2. A cada create/update/delete, o serviço publica um `ProductEvent` no tópico SNS `product-events`.
+3. O tópico faz **fan-out** para a fila SQS `product-events` (com dead-letter queue após 3 tentativas).
+4. `aws_project02` escuta a fila via **JMS listener**, desempacota o envelope SNS e grava um `ProductEventLog` no **DynamoDB** (chave composta `pk`/`sk`, com TTL de 10 minutos). O serviço também expõe endpoints de consulta desse histórico.
+
+### Fluxo de notas fiscais (upload via S3 + processamento assíncrono)
+
+1. O cliente pede uma **URL pré-assinada** em `POST /api/invoices`; o serviço devolve uma URL temporária de `PUT` para o bucket S3.
+2. O cliente faz o upload do arquivo JSON da nota diretamente para o S3 usando essa URL (sem passar o payload pela aplicação).
+3. Ao criar o objeto, o S3 emite uma notificação `OBJECT_CREATED_PUT` para o tópico SNS `s3-invoice-events`, que entrega na fila SQS correspondente (com DLQ).
+4. O `InvoiceConsumer` (no próprio `aws_project01`) consome a fila, baixa o objeto do S3, persiste a `Invoice` no **RDS** e apaga o arquivo do bucket. Notificações sem registros (ex.: `s3:TestEvent`) são ignoradas.
+
+> Por que URL pré-assinada? Assim o arquivo vai direto do cliente para o S3, sem ocupar a aplicação com o tráfego do upload — e o processamento acontece de forma assíncrona, acionado pelo evento do próprio S3.
 
 ## Estrutura do projeto
 
 ```
-aws_project01/   # Serviço Spring Boot REST — CRUD de produtos, publica eventos no SNS (Gradle)
-aws_project02/   # Serviço Spring Boot — consome eventos da fila SQS via JMS listener (Gradle)
-aws_cdk/         # Infraestrutura AWS CDK (Maven)
+aws_project01/   # Spring Boot (Gradle) — CRUD de produtos + API de invoices
+                 #   publica eventos no SNS e consome a fila de invoices (S3→SNS→SQS)
+aws_project02/   # Spring Boot (Gradle) — consome eventos de produto da SQS (JMS) e
+                 #   grava o histórico no DynamoDB; expõe consultas do log
+aws_cdk/         # Infraestrutura como código em AWS CDK (Maven) — provisiona tudo acima
 ```
+
+Cada subprojeto tem seu próprio README/instruções de build. Detalhes de comandos (build, Docker, deploy e o fluxo de versionamento das imagens) estão documentados em `CLAUDE.md`.
+
+## Tecnologias praticadas
+
+- **Java 17** + **Spring Boot 3.2** (REST, Data JPA, JMS) — aplicações e CDK
+- **Gradle** (apps) e **Maven** (CDK) para build
+- **Docker** + **Docker Hub** — imagens `linux/amd64` publicadas no registry
+- **AWS CDK (Java)** — infraestrutura como código
+- **ECS Fargate** + **ALB** — execução dos containers e exposição pública (porta 8080)
+- **VPC** — rede com subnets isoladas para o banco
+- **RDS (MySQL 8.0)** — persistência de produtos e notas fiscais
+- **SNS + SQS (com DLQ)** — mensageria com padrão fan-out e retentativa
+- **S3** — armazenamento dos arquivos de nota fiscal, com notificação por evento
+- **DynamoDB** — histórico de eventos de produto (com TTL)
+- **CloudWatch** — logs dos containers
 
 ## Notas de custo (RDS)
 
